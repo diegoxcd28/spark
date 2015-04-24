@@ -54,11 +54,11 @@ object FilteredOperation extends PredicateHelper {
  * necessary.
  */
 object PhysicalOperation extends PredicateHelper {
-  type ReturnType = (Seq[NamedExpression], Seq[Expression], LogicalPlan)
+  type ReturnType = (Seq[NamedExpression], Seq[Expression], Seq[NamedExpression], LogicalPlan)
 
   def unapply(plan: LogicalPlan): Option[ReturnType] = {
-    val (fields, filters, child, _) = collectProjectsAndFilters(plan)
-    Some((fields.getOrElse(child.output), filters, child))
+    val (fields, filters, child, _, nav) = collectProjectsAndFilters(plan)
+    Some((fields.getOrElse(child.output), filters, nav.getOrElse(Seq()), child))
   }
 
   /**
@@ -75,20 +75,23 @@ object PhysicalOperation extends PredicateHelper {
    * }}}
    */
   def collectProjectsAndFilters(plan: LogicalPlan):
-      (Option[Seq[NamedExpression]], Seq[Expression], LogicalPlan, Map[Attribute, Expression]) =
+      (Option[Seq[NamedExpression]], Seq[Expression], LogicalPlan, Map[Attribute, Expression]
+        ,Option[Seq[NamedExpression]]) =
     plan match {
       case Project(fields, child) =>
-        val (_, filters, other, aliases) = collectProjectsAndFilters(child)
+        val (_, filters, other, aliases, nav) = collectProjectsAndFilters(child)
         val substitutedFields = fields.map(substitute(aliases)).asInstanceOf[Seq[NamedExpression]]
-        (Some(substitutedFields), filters, other, collectAliases(substitutedFields))
+        (Some(substitutedFields), filters, other, collectAliases(substitutedFields), nav)
 
       case Filter(condition, child) =>
-        val (fields, filters, other, aliases) = collectProjectsAndFilters(child)
+        val (fields, filters, other, aliases, nav) = collectProjectsAndFilters(child)
         val substitutedCondition = substitute(aliases)(condition)
-        (fields, filters ++ splitConjunctivePredicates(substitutedCondition), other, aliases)
-
+        (fields, filters ++ splitConjunctivePredicates(substitutedCondition), other, aliases, nav)
+      case a@Navigate(elements, child) =>
+        val (fields,filters, other, aliases,_) = collectProjectsAndFilters(child)
+        (fields, filters, other, aliases, Some(elements))
       case other =>
-        (None, Nil, other, Map.empty)
+        (None, Nil, other, Map.empty, None)
     }
 
   def collectAliases(fields: Seq[Expression]): Map[Attribute, Expression] = fields.collect {

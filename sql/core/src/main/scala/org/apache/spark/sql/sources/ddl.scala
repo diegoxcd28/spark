@@ -125,8 +125,13 @@ private[sql] class DDLParser(
         }
     }
 
-  protected lazy val tableCols: Parser[Seq[StructField]] =  "(" ~> repsep(column, ",") <~ ")"
+  protected lazy val tableCols: Parser[Seq[StructField]] =  ("(" ~> repsep(column, ",") ~ openType.? <~ ")" ^^ {
+    case cols ~ None => cols
+    case cols ~ Some(ot) => cols:+ot
+  }) | "*" ^^^ Seq(StructField("*", AnyType))
 
+    protected lazy val openType: Parser[StructField] =
+       "," ~ "*" ^^^ StructField("*", AnyType)
   /*
    * describe [extended] table avroTable
    * This will display all columns of table `avroTable` includes column_name,column_type,nullable

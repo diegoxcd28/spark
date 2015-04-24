@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.types.{StructType, NativeType}
+import org.apache.spark.sql.types._
 
 
 /**
@@ -219,11 +219,27 @@ class RowOrdering(ordering: Seq[SortOrder]) extends Ordering[Row] {
       } else if (right == null) {
         return if (order.direction == Ascending) 1 else -1
       } else {
-        val comparison = order.dataType match {
-          case n: NativeType if order.direction == Ascending =>
-            n.ordering.asInstanceOf[Ordering[Any]].compare(left, right)
-          case n: NativeType if order.direction == Descending =>
-            n.ordering.asInstanceOf[Ordering[Any]].reverse.compare(left, right)
+        val (ord:Ordering[Any], l, r)  = order.dataType match {
+          case n: NativeType =>
+            (n.ordering.asInstanceOf[Ordering[Any]],left, right)
+          case n: AnyType =>
+            val (nEvalE1, nt1) = SQLPlusPlusTypes.coerceAny(left,n)
+            val (nEvalE2, nt2) = SQLPlusPlusTypes.coerceAny(right,n)
+            val t = SQLPlusPlusTypes.findTightestCommonType(nt1,nt2)
+            (t,nt1,nt2) match {
+              case (n:NumericType,nt1:NumericType,nt2:NumericType) =>
+                (n.ordering.asInstanceOf[Ordering[Any]],
+                  SQLPlusPlusTypes.convertToType(nEvalE1,nt1,n).asInstanceOf[n.JvmType],
+                  SQLPlusPlusTypes.convertToType(nEvalE2,nt2,n).asInstanceOf[n.JvmType])
+              case (n:NativeType,nt1:NativeType,nt2:NativeType) if nt1 == nt2 =>
+                (n.ordering.asInstanceOf[Ordering[Any]],left, right)
+              case (n:AnyType, nt1,nt2) =>
+                (IntegerType.ordering,SQLPlusPlusTypes.typeOrder(nt1),SQLPlusPlusTypes.typeOrder(nt2))
+            }
+        }
+        val comparison = order.direction match {
+          case Ascending  => ord.compare(l,r)
+          case Descending => ord.reverse.compare(l,r)
         }
         if (comparison != 0) return comparison
       }

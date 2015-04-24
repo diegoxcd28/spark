@@ -19,7 +19,10 @@ package org.apache.spark.sql.json
 
 import java.sql.Timestamp
 
-import scala.collection.Map
+import org.apache.spark.sql.TupleValue
+
+import scala.collection.mutable.ArrayBuffer
+import scala.collection.{mutable, Map}
 import scala.collection.convert.Wrappers.{JMapWrapper, JListWrapper}
 
 import com.fasterxml.jackson.core.{JsonGenerator, JsonProcessingException}
@@ -38,6 +41,12 @@ private[sql] object JsonRDD extends Logging {
       json: RDD[String],
       schema: StructType,
       columnNameOfCorruptRecords: String): RDD[Row] = {
+    parseJson(json, columnNameOfCorruptRecords).map(parsed => asRow(parsed, schema))
+  }
+  private[sql] def jsonStringToRow(
+       json: RDD[String],
+       schema: AnyType,
+       columnNameOfCorruptRecords: String): RDD[Row] = {
     parseJson(json, columnNameOfCorruptRecords).map(parsed => asRow(parsed, schema))
   }
 
@@ -425,6 +434,21 @@ private[sql] object JsonRDD extends Logging {
         case struct: StructType => asRow(value.asInstanceOf[Map[String, Any]], struct)
         case DateType => toDate(value)
         case TimestampType => toTimestamp(value)
+        case AnyType => enforceCorrectType(value, AnyType)
+      }
+    }
+  }
+  private[json] def enforceCorrectType(value: Any, desiredType: AnyType): Any ={
+    if (value == null) {
+      null
+    } else {
+      value match {
+        case v:ArrayBuffer[_] =>
+          value.asInstanceOf[Seq[Any]].map(enforceCorrectType(_, AnyType))
+        case _ if value == null || value == "" => null // guard the non string type
+        case map:Map[String,_] =>
+          new GenericTupleValue(map.mapValues(enforceCorrectType(_, AnyType)).map(identity).toMap)
+        case _ => value
       }
     }
   }
@@ -432,13 +456,33 @@ private[sql] object JsonRDD extends Logging {
   private def asRow(json: Map[String,Any], schema: StructType): Row = {
     // TODO: Reuse the row instead of creating a new one for every record.
     val row = new GenericMutableRow(schema.fields.length)
-    schema.fields.zipWithIndex.foreach {
-      case (StructField(name, dataType, _, _), i) =>
-        row.update(i, json.get(name).flatMap(v => Option(v)).map(
-          enforceCorrectType(_, dataType)).orNull)
+    val openIdx = schema.getOpenIndex
+    if (openIdx.isDefined){
+      val openTuple =  scala.collection.mutable.ListBuffer.empty[(String,Any)]
+      json.foreach{
+        case (name, value) =>
+          schema.getFieldIndex(name) match{
+            case Some((f,i)) =>
+              row.update(i, Option(value).map(enforceCorrectType(_, f.dataType)).orNull)
+            case None  =>
+              val pair = (name,Option(value).map(enforceCorrectType(_, AnyType)).orNull)
+              openTuple += pair
+          }
+      }
+      row.update(openIdx.get,new GenericTupleValue(openTuple.toMap))
+    } else {
+      schema.fields.zipWithIndex.foreach {
+        case (StructField(name, dataType, _, _), i) =>
+          row.update(i, json.get(name).flatMap(v => Option(v)).map(
+            enforceCorrectType(_, dataType)).orNull)
+      }
     }
 
     row
+  }
+
+  private def asRow(json: Map[String,Any], schema: AnyType): Row = {
+    asRow(json,OpenStructType())
   }
 
   /** Transforms a single Row to JSON using Jackson
@@ -484,6 +528,49 @@ private[sql] object JsonRDD extends Logging {
           case (field, v) =>
             gen.writeFieldName(field.name)
             valWriter(field.dataType, v)
+        }
+        gen.writeEndObject()
+      case (AnyType, v ) => valWriterAny(v)
+    }
+    def valWriterAny: Any => Unit = {
+      case null   => gen.writeNull()
+      case  v: String => gen.writeString(v)
+      case  v: java.sql.Timestamp => gen.writeString(v.toString)
+      case  v: Int => gen.writeNumber(v)
+      case  v: Short => gen.writeNumber(v)
+      case  v: Float => gen.writeNumber(v)
+      case  v: Double => gen.writeNumber(v)
+      case  v: Long => gen.writeNumber(v)
+      case  v: java.math.BigDecimal => gen.writeNumber(v)
+      case  v: Byte => gen.writeNumber(v.toInt)
+      case  v: Array[Byte] => gen.writeBinary(v)
+      case  v: Boolean => gen.writeBoolean(v)
+      case  v: java.util.Date => gen.writeString(v.toString)
+
+      case v: Seq[_]  =>
+        gen.writeStartArray()
+        v.foreach(valWriter(AnyType,_))
+        gen.writeEndArray()
+
+      case  v: Map[_,_] =>
+        gen.writeStartObject()
+        v.foreach { p =>
+          gen.writeFieldName(p._1.toString)
+          valWriter(AnyType,p._2)
+        }
+        gen.writeEndObject()
+      case  v: TupleValue =>
+        gen.writeStartObject()
+        v.toSeq.foreach { p =>
+          gen.writeFieldName(p._1.toString)
+          valWriter(AnyType,p._2)
+        }
+        gen.writeEndObject()
+      case  v: Row =>
+        gen.writeStartObject()
+        v.toSeq.foreach {
+          case null =>
+          case v => valWriter(AnyType,v)
         }
         gen.writeEndObject()
     }

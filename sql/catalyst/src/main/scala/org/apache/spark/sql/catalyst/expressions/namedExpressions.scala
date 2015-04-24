@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.spark.sql.TupleValue
 import org.apache.spark.sql.catalyst.trees
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
@@ -138,6 +139,56 @@ case class Alias(child: Expression, name: String)
       name == a.name && exprId == a.exprId && child == a.child && qualifiers == a.qualifiers
     case _ => false
   }
+}
+
+/**
+ * Used to indicate a navigation over a tuple
+ *
+ * @param child the reference over which we will navigate
+ * @param name the name to be associated with the result of computing [[child]].
+ * @param exprId A globally unique id used to check if an [[AttributeReference]] refers to this
+ *               alias. Auto-assigned if left blank.
+ */
+case class pathExpression(child: Expression, name: String)
+                         (val exprId: ExprId = NamedExpression.newExprId, val qualifiers: Seq[String] = Nil)
+  extends NamedExpression with trees.UnaryNode[Expression] {
+
+  override type EvaluatedType = Any
+
+  override def eval(input: Row)  = {
+    val childVal = child.eval(input)
+    val path =  name.split("\\.")
+
+    nest(childVal,path)
+  }
+
+  private def nest(childVal : Any, path: Seq[String] ) = {
+    path.foldLeft(childVal) {
+      case (t: TupleValue,p) => t.get(p)
+      case (_,_) => null
+    }
+  }
+
+  override def dataType = child.dataType
+  override def nullable = child.nullable
+  override def metadata: Metadata = {
+    child match {
+      case named: NamedExpression => named.metadata
+      case _ => Metadata.empty
+    }
+  }
+
+  override def toAttribute = {
+    if (resolved) {
+      AttributeReference(name, dataType, nullable, metadata)(exprId, qualifiers)
+    } else {
+      UnresolvedAttribute(name)
+    }
+  }
+
+  override def toString: String = s"$child.$name AS  $name#${exprId.id}$typeSuffix"
+
+  override protected final def otherCopyArgs = exprId :: qualifiers :: Nil
 }
 
 /**

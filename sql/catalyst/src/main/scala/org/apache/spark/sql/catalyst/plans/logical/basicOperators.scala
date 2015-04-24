@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.plans.logical
 
+import org.apache.spark.sql.catalyst.analysis.HiveTypeCoercion
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.types._
@@ -70,17 +71,34 @@ case class Generate(
     if (join) child.output ++ generatorOutput else generatorOutput
 }
 
+case class Navigate(elements: Seq[NamedExpression], child: LogicalPlan) extends UnaryNode {
+  def output = child.output ++ elements.map(_.toAttribute)
+}
+
 case class Filter(condition: Expression, child: LogicalPlan) extends UnaryNode {
   override def output: Seq[Attribute] = child.output
 }
 
 case class Union(left: LogicalPlan, right: LogicalPlan) extends BinaryNode {
   // TODO: These aren't really the same attributes as nullability etc might change.
-  override def output: Seq[Attribute] = left.output
+  override def output =
+    left.output.zip(right.output).map {
+      case (l, r) =>
+        if (l.dataType.superTypeOf(r.dataType)) {
+          l
+        } else {
+          l match {
+            case a:AttributeReference =>
+              val t= SQLPlusPlusTypes.findTightestCommonType(l.dataType,r.dataType)
+              a.copy(dataType = t)(exprId = l.exprId, qualifiers = l.qualifiers)
+            case b => b
+          }
+        }
+    }
 
   override lazy val resolved: Boolean =
     childrenResolved &&
-    left.output.zip(right.output).forall { case (l,r) => l.dataType == r.dataType }
+    left.output.zip(right.output).forall { case (l,r) => l.dataType.isEquivalent(r.dataType) }
 }
 
 case class Join(
@@ -114,6 +132,10 @@ case class Join(
 
 case class Except(left: LogicalPlan, right: LogicalPlan) extends BinaryNode {
   override def output: Seq[Attribute] = left.output
+
+  override lazy val resolved =
+    childrenResolved &&
+      left.output.zip(right.output).forall { case (l,r) => l.dataType.isEquivalent(r.dataType) }
 }
 
 case class InsertIntoTable(
@@ -264,7 +286,7 @@ case class Limit(limitExpr: Expression, child: LogicalPlan) extends UnaryNode {
 }
 
 case class Subquery(alias: String, child: LogicalPlan) extends UnaryNode {
-  override def output: Seq[Attribute] = child.output.map(_.withQualifiers(alias :: Nil))
+  override def output: Seq[Attribute] = child.output.map(o => o.withQualifiers(o.qualifiers :+ alias))
 }
 
 case class Sample(fraction: Double, withReplacement: Boolean, seed: Long, child: LogicalPlan)
@@ -294,5 +316,22 @@ case object OneRowRelation extends LeafNode {
 }
 
 case class Intersect(left: LogicalPlan, right: LogicalPlan) extends BinaryNode {
-  override def output: Seq[Attribute] = left.output
+
+
+  override def output = left.output.zip(right.output).map {
+    case (l, r) =>
+      if (l.dataType.superTypeOf(r.dataType)) {
+        l
+      } else {
+        l match {
+          case a:AttributeReference =>
+            val t= SQLPlusPlusTypes.findTightestCommonType(l.dataType,r.dataType)
+            a.copy(dataType = t)(exprId = l.exprId, qualifiers = l.qualifiers)
+          case b => b
+        }
+      }
+  }
+  override lazy val resolved =
+    childrenResolved &&
+      left.output.zip(right.output).forall { case (l,r) => l.dataType.isEquivalent(r.dataType) }
 }

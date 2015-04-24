@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.ScalaReflection
 import org.apache.spark.sql.catalyst.analysis.MultiInstanceRelation
 import org.apache.spark.sql.catalyst.expressions.{Attribute, GenericMutableRow}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, Statistics}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{AnyType, StructType}
 
 import scala.collection.immutable
 
@@ -48,6 +48,21 @@ object RDDConversions {
               ScalaReflection.convertToCatalyst(r.productElement(i), schemaFields(i).dataType)
             i += 1
           }
+
+          mutableRow
+        }
+      }
+    }
+  }
+  def productToRowRdd[A <: Product](data: RDD[A], schema: AnyType): RDD[Row] = {
+    data.mapPartitions { iterator =>
+      if (iterator.isEmpty) {
+        Iterator.empty
+      } else {
+        val bufferedIterator = iterator.buffered
+        val mutableRow = new GenericMutableRow(1)
+        bufferedIterator.map { r =>
+          mutableRow(0) = ScalaReflection.convertToCatalyst(r,AnyType)
 
           mutableRow
         }

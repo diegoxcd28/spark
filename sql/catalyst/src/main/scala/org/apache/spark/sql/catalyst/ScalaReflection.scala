@@ -19,6 +19,7 @@ package org.apache.spark.sql.catalyst
 
 import java.sql.Timestamp
 
+import org.apache.spark.sql.TupleValue
 import org.apache.spark.util.Utils
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.logical.LocalRelation
@@ -71,12 +72,34 @@ trait ScalaReflection {
         }.toArray)
     case (d: BigDecimal, _) => Decimal(d)
     case (d: java.math.BigDecimal, _) => Decimal(d)
-    case (d: java.sql.Date, _) => DateUtils.fromJavaDate(d)
+    case (d: java.sql.Date, _: DateType) => DateUtils.fromJavaDate(d)
     case (r: Row, structType: StructType) =>
       new GenericRow(
         r.toSeq.zip(structType.fields).map { case (elem, field) =>
           convertToCatalyst(elem, field.dataType)
         }.toArray)
+    case (r: Row, _:  AnyType) =>
+      new GenericRow(
+        r.toSeq.map { case elem =>
+          convertToCatalyst(elem, AnyType)
+        }.toArray)
+    case (s: Seq[_], t: AnyType) => s.map(convertToCatalyst(_, t))
+    case (p: Product, _: AnyType) =>
+      new GenericTupleValue(
+        p.getClass.getDeclaredFields.map(field => field.getName),
+        p.productIterator.map { elem =>
+          convertToCatalyst(elem, AnyType)
+        }.toSeq)
+    case (m: Map[String,_], t: AnyType) =>
+      val mp:Map[String,Any] = m.map { case (k, v) =>
+        k -> convertToCatalyst(v, t)
+    }
+      new GenericTupleValue(mp.toMap)
+    case (m: TupleValue, t: AnyType) =>
+      val mp = m.toSeq.map { case (k, v) =>
+        k -> convertToCatalyst(v, t)
+    }
+      new GenericTupleValue(mp.toMap)
     case (other, _) => other
   }
 
@@ -90,6 +113,7 @@ trait ScalaReflection {
     }
     case (r: Row, s: StructType) => convertRowToScala(r, s)
     case (d: Decimal, _: DecimalType) => d.toJavaBigDecimal
+    case (d: Decimal, _: AnyType) => d.toJavaBigDecimal
     case (i: Int, DateType) => DateUtils.toJavaDate(i)
     case (other, _) => other
   }
@@ -104,6 +128,8 @@ trait ScalaReflection {
   /** Returns a Sequence of attributes for the given case class type. */
   def attributesFor[T: TypeTag]: Seq[Attribute] = schemaFor[T] match {
     case Schema(s: StructType, _) =>
+      s.toAttributes
+    case Schema(s: AnyType, _) =>
       s.toAttributes
   }
 
@@ -144,26 +170,29 @@ trait ScalaReflection {
           valueDataType, valueContainsNull = valueNullable), nullable = true)
       case t if t <:< typeOf[Product] =>
         val formalTypeArgs = t.typeSymbol.asClass.typeParams
-        val TypeRef(_, _, actualTypeArgs) = t
-        val constructorSymbol = t.member(nme.CONSTRUCTOR)
-        val params = if (constructorSymbol.isMethod) {
-          constructorSymbol.asMethod.paramss
-        } else {
-          // Find the primary constructor, and use its parameter ordering.
-          val primaryConstructorSymbol: Option[Symbol] = constructorSymbol.asTerm.alternatives.find(
-            s => s.isMethod && s.asMethod.isPrimaryConstructor)
-          if (primaryConstructorSymbol.isEmpty) {
-            sys.error("Internal SQL error: Product object did not have a primary constructor.")
-          } else {
-            primaryConstructorSymbol.get.asMethod.paramss
-          }
+        t match {
+          case TypeRef(_, _, actualTypeArgs) =>
+            val constructorSymbol = t.member(nme.CONSTRUCTOR)
+            val params = if (constructorSymbol.isMethod) {
+              constructorSymbol.asMethod.paramss
+            } else {
+              // Find the primary constructor, and use its parameter ordering.
+              val primaryConstructorSymbol: Option[Symbol] = constructorSymbol.asTerm.alternatives.find(
+                s => s.isMethod && s.asMethod.isPrimaryConstructor)
+              if (primaryConstructorSymbol.isEmpty) {
+                sys.error("Internal SQL error: Product object did not have a primary constructor.")
+              } else {
+                primaryConstructorSymbol.get.asMethod.paramss
+              }
+            }
+            Schema(StructType(
+              params.head.map { p =>
+                val Schema(dataType, nullable) =
+                  schemaFor(p.typeSignature.substituteTypes(formalTypeArgs, actualTypeArgs))
+                StructField(p.name.toString, dataType, nullable)
+              }), nullable = true)
+          case _ => Schema(AnyType,nullable = true)
         }
-        Schema(StructType(
-          params.head.map { p =>
-            val Schema(dataType, nullable) =
-              schemaFor(p.typeSignature.substituteTypes(formalTypeArgs, actualTypeArgs))
-            StructField(p.name.toString, dataType, nullable)
-          }), nullable = true)
       case t if t <:< typeOf[String] => Schema(StringType, nullable = true)
       case t if t <:< typeOf[Timestamp] => Schema(TimestampType, nullable = true)
       case t if t <:< typeOf[java.sql.Date] => Schema(DateType, nullable = true)

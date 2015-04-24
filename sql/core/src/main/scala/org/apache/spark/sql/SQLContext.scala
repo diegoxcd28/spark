@@ -34,7 +34,7 @@ import org.apache.spark.sql.catalyst.optimizer.{DefaultOptimizer, Optimizer}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, OneRowRelation}
 import org.apache.spark.sql.catalyst.rules.RuleExecutor
 import org.apache.spark.sql.catalyst.{ScalaReflection, expressions}
-import org.apache.spark.sql.execution.{Filter, _}
+import org.apache.spark.sql.execution._
 import org.apache.spark.sql.jdbc.{JDBCPartition, JDBCPartitioningInfo, JDBCRelation}
 import org.apache.spark.sql.json._
 import org.apache.spark.sql.sources._
@@ -317,10 +317,17 @@ class SQLContext(@transient val sparkContext: SparkContext)
   @Experimental
   def createDataFrame[A <: Product : TypeTag](rdd: RDD[A]): DataFrame = {
     SparkPlan.currentContext.set(self)
-    val schema = ScalaReflection.schemaFor[A].dataType.asInstanceOf[StructType]
-    val attributeSeq = schema.toAttributes
-    val rowRDD = RDDConversions.productToRowRdd(rdd, schema)
-    DataFrame(self, LogicalRDD(attributeSeq, rowRDD)(self))
+    val schema = ScalaReflection.schemaFor[A].dataType
+    schema match {
+      case s : StructType =>
+        val attributeSeq = s.toAttributes
+        val rowRDD = RDDConversions.productToRowRdd(rdd, s)
+        DataFrame(self, LogicalRDD(attributeSeq, rowRDD)(self))
+      case a : AnyType    =>
+        val attributeSeq = a.toAttributes
+        val rowRDD = RDDConversions.productToRowRdd(rdd, a)
+        DataFrame(self, LogicalRDD(attributeSeq, rowRDD)(self))
+    }
   }
 
   /**
@@ -399,6 +406,18 @@ class SQLContext(@transient val sparkContext: SparkContext)
     DataFrame(this, logicalPlan)
   }
 
+  /**
+   * Creates a DataFrame from an RDD[Row]. User can specify whether the input rows should be
+   * converted to Catalyst rows. With the schema type as any
+   */
+  private[sql]
+  def createDataFrame(rowRDD: RDD[Row], schema: AnyType, needsConversion: Boolean) = {
+    createDataFrame(rowRDD,OpenStructType(),needsConversion)
+  }
+
+  def createDataFrame(rowRDD: RDD[Row], schema: AnyType): DataFrame = {
+    createDataFrame(rowRDD, OpenStructType(), needsConversion = true)
+  }
   /**
    * :: DeveloperApi ::
    * Creates a [[DataFrame]] from an [[JavaRDD]] containing [[Row]]s using the given schema.
@@ -565,6 +584,17 @@ class SQLContext(@transient val sparkContext: SparkContext)
 
   /**
    * :: Experimental ::
+   * Loads a JSON file (one object per line) and applies the AnyType Schema,
+   * returning the result as a [[DataFrame]].
+   *
+   * @group specificdata
+   */
+  @Experimental
+  def jsonFile(path: String, schema: AnyType): DataFrame =
+    load("json", OpenStructType(Seq()), Map("path" -> path))
+
+  /**
+   * :: Experimental ::
    * @group specificdata
    */
   @Experimental
@@ -606,6 +636,19 @@ class SQLContext(@transient val sparkContext: SparkContext)
           JsonRDD.inferSchema(json, 1.0, columnNameOfCorruptJsonRecord)))
     val rowRDD = JsonRDD.jsonStringToRow(json, appliedSchema, columnNameOfCorruptJsonRecord)
     createDataFrame(rowRDD, appliedSchema, needsConversion = false)
+  }
+  /**
+   * :: Experimental ::
+   * Loads an RDD[String] storing JSON objects (one object per record) and applies the given schema,
+   * returning the result as a [[DataFrame]].
+   *
+   * @group specificdata
+   */
+  @Experimental
+  def jsonRDD(json: RDD[String], schema: AnyType): DataFrame = {
+    val columnNameOfCorruptJsonRecord = conf.columnNameOfCorruptRecord
+    val rowRDD = JsonRDD.jsonStringToRow(json, schema, columnNameOfCorruptJsonRecord)
+    createDataFrame(rowRDD, schema, needsConversion = false)
   }
 
   /**
@@ -1051,6 +1094,40 @@ class SQLContext(@transient val sparkContext: SparkContext)
       } else {
         val scan = scanBuilder((projectSet ++ filterSet).toSeq)
         Project(projectList, filterCondition.map(Filter(_, scan)).getOrElse(scan))
+      }
+    }
+    def pruneFilterProjectNav(
+                               projectList: Seq[NamedExpression],
+                               filterPredicates: Seq[Expression],
+                               navigationList: Seq[NamedExpression],
+                               prunePushedDownFilters: Seq[Expression] => Seq[Expression],
+                               scanBuilder: (Seq[Attribute],Seq[Expression]) => SparkPlan): SparkPlan = {
+
+      val navigationAttributes = AttributeSet(navigationList.map(_.toAttribute))
+      val projectSet = AttributeSet(projectList.flatMap(_.references)) -- navigationAttributes
+
+      val navigationSet = AttributeSet(navigationList.flatMap(_.references))
+
+      val filterSet = AttributeSet(filterPredicates.flatMap(_.references)) -- navigationAttributes
+      val filterCondition =
+        prunePushedDownFilters(filterPredicates).reduceLeftOption(expressions.And)
+
+      val filter = filterPredicates.flatMap{
+        e => if (containsKnownData(e.children, navigationAttributes)) Seq(e) else Seq()
+      }
+
+
+
+      val scan = scanBuilder((projectSet ++ filterSet ++ navigationSet).toSeq, filter)
+      val nav = Navigate(navigationList,scan)
+      Project(projectList, filterCondition.map(Filter(_, nav)).getOrElse(nav))
+    }
+    private def containsKnownData(exps: Seq[Expression], navigationAttributes: AttributeSet): Boolean ={
+      exps.foldLeft(true){
+        case (false,_) => false
+        case (_, e:Attribute) if navigationAttributes.contains(e) => false
+        case (_, e:Expression) => containsKnownData(e.children,navigationAttributes)
+        case _ => true
       }
     }
   }

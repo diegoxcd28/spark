@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.catalyst.analysis.UnresolvedException
+import org.apache.spark.sql.catalyst.analysis.{HiveTypeCoercion, UnresolvedException}
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
 import org.apache.spark.sql.types._
 
@@ -31,6 +31,7 @@ case class UnaryMinus(child: Expression) extends UnaryExpression {
 
   lazy val numeric = dataType match {
     case n: NumericType => n.numeric.asInstanceOf[Numeric[Any]]
+    case n: AnyType => n.numeric.asInstanceOf[Numeric[Any]]
     case other => sys.error(s"Type $other does not support numeric operations")
   }
 
@@ -54,6 +55,7 @@ case class Sqrt(child: Expression) extends UnaryExpression {
 
   lazy val numeric = child.dataType match {
     case n: NumericType => n.numeric.asInstanceOf[Numeric[Any]]
+    case n: AnyType => n.numeric.asInstanceOf[Numeric[Any]]
     case other => sys.error(s"Type $other does not support non-negative numeric operations")
   }
 
@@ -78,7 +80,7 @@ abstract class BinaryArithmetic extends BinaryExpression {
 
   override lazy val resolved =
     left.resolved && right.resolved &&
-    left.dataType == right.dataType &&
+    left.dataType.isEquivalent(right.dataType) &&
     !DecimalType.isFixed(left.dataType)
 
   def dataType: DataType = {
@@ -86,7 +88,7 @@ abstract class BinaryArithmetic extends BinaryExpression {
       throw new UnresolvedException(this,
         s"datatype. Can not resolve due to differing types ${left.dataType}, ${right.dataType}")
     }
-    left.dataType
+    SQLPlusPlusTypes.findTightestCommonType(left.dataType,right.dataType)
   }
 
   override def eval(input: Row): Any = {
@@ -112,6 +114,7 @@ case class Add(left: Expression, right: Expression) extends BinaryArithmetic {
 
   lazy val numeric = dataType match {
     case n: NumericType => n.numeric.asInstanceOf[Numeric[Any]]
+    case n: AnyType => n.numeric.asInstanceOf[Numeric[Any]]
     case other => sys.error(s"Type $other does not support numeric operations")
   }
 
@@ -135,6 +138,7 @@ case class Subtract(left: Expression, right: Expression) extends BinaryArithmeti
 
   lazy val numeric = dataType match {
     case n: NumericType => n.numeric.asInstanceOf[Numeric[Any]]
+    case n: AnyType => n.numeric.asInstanceOf[Numeric[Any]]
     case other => sys.error(s"Type $other does not support numeric operations")
   }
 
@@ -158,6 +162,7 @@ case class Multiply(left: Expression, right: Expression) extends BinaryArithmeti
 
   lazy val numeric = dataType match {
     case n: NumericType => n.numeric.asInstanceOf[Numeric[Any]]
+    case n: AnyType => n.numeric.asInstanceOf[Numeric[Any]]
     case other => sys.error(s"Type $other does not support numeric operations")
   }
 
@@ -184,6 +189,7 @@ case class Divide(left: Expression, right: Expression) extends BinaryArithmetic 
   lazy val div: (Any, Any) => Any = dataType match {
     case ft: FractionalType => ft.fractional.asInstanceOf[Fractional[Any]].div
     case it: IntegralType => it.integral.asInstanceOf[Integral[Any]].quot
+    case n: AnyType => n.numeric.asInstanceOf[Fractional[Any]].div
     case other => sys.error(s"Type $other does not support numeric operations")
   }
   
@@ -210,6 +216,7 @@ case class Remainder(left: Expression, right: Expression) extends BinaryArithmet
   lazy val integral = dataType match {
     case i: IntegralType => i.integral.asInstanceOf[Integral[Any]]
     case i: FractionalType => i.asIntegral.asInstanceOf[Integral[Any]]
+    case n: AnyType => n.integral.asInstanceOf[Integral[Any]]
     case other => sys.error(s"Type $other does not support numeric operations")
   }
 
@@ -347,6 +354,7 @@ case class MaxOf(left: Expression, right: Expression) extends Expression {
 
   lazy val ordering = left.dataType match {
     case i: NativeType => i.ordering.asInstanceOf[Ordering[Any]]
+    case n: AnyType => n.ordering.asInstanceOf[Numeric[Any]]
     case other => sys.error(s"Type $other does not support ordered operations")
   }
 
@@ -382,6 +390,7 @@ case class Abs(child: Expression) extends UnaryExpression  {
 
   lazy val numeric = dataType match {
     case n: NumericType => n.numeric.asInstanceOf[Numeric[Any]]
+    case n: AnyType => n.numeric.asInstanceOf[Numeric[Any]]
     case other => sys.error(s"Type $other does not support numeric operations")
   }
 

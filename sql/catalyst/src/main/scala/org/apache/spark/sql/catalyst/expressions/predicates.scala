@@ -20,7 +20,7 @@ package org.apache.spark.sql.catalyst.expressions
 import org.apache.spark.sql.catalyst.analysis.UnresolvedException
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
-import org.apache.spark.sql.types.{DataType, BinaryType, BooleanType, NativeType}
+import org.apache.spark.sql.types._
 
 object InterpretedPredicate {
   def apply(expression: Expression, inputSchema: Seq[Attribute]): (Row => Boolean) =
@@ -207,13 +207,13 @@ case class LessThan(left: Expression, right: Expression) extends BinaryCompariso
   override def symbol: String = "<"
 
   lazy val ordering: Ordering[Any] = {
-    if (left.dataType != right.dataType) {
+    if (!left.dataType.isEquivalent(right.dataType)) {
       throw new TreeNodeException(this,
         s"Types do not match ${left.dataType} != ${right.dataType}")
     }
     left.dataType match {
-      case i: NativeType => i.ordering.asInstanceOf[Ordering[Any]]
-      case other => sys.error(s"Type $other does not support ordered operations")
+      case i: NativeType if i == right.dataType => i.ordering.asInstanceOf[Ordering[Any]]
+      case other => AnyType.ordering.asInstanceOf[Ordering[Any]]
     }
   }
 
@@ -236,13 +236,13 @@ case class LessThanOrEqual(left: Expression, right: Expression) extends BinaryCo
   override def symbol: String = "<="
 
   lazy val ordering: Ordering[Any] = {
-    if (left.dataType != right.dataType) {
+    if (!left.dataType.isEquivalent(right.dataType)) {
       throw new TreeNodeException(this,
         s"Types do not match ${left.dataType} != ${right.dataType}")
     }
     left.dataType match {
-      case i: NativeType => i.ordering.asInstanceOf[Ordering[Any]]
-      case other => sys.error(s"Type $other does not support ordered operations")
+      case i: NativeType if i == right.dataType => i.ordering.asInstanceOf[Ordering[Any]]
+      case other => AnyType.ordering.asInstanceOf[Ordering[Any]]
     }
   }
 
@@ -265,13 +265,13 @@ case class GreaterThan(left: Expression, right: Expression) extends BinaryCompar
   override def symbol: String = ">"
 
   lazy val ordering: Ordering[Any] = {
-    if (left.dataType != right.dataType) {
+    if (!left.dataType.isEquivalent(right.dataType)) {
       throw new TreeNodeException(this,
         s"Types do not match ${left.dataType} != ${right.dataType}")
     }
     left.dataType match {
-      case i: NativeType => i.ordering.asInstanceOf[Ordering[Any]]
-      case other => sys.error(s"Type $other does not support ordered operations")
+      case i: NativeType if i == right.dataType => i.ordering.asInstanceOf[Ordering[Any]]
+      case other => AnyType.ordering.asInstanceOf[Ordering[Any]]
     }
   }
 
@@ -294,13 +294,13 @@ case class GreaterThanOrEqual(left: Expression, right: Expression) extends Binar
   override def symbol: String = ">="
 
   lazy val ordering: Ordering[Any] = {
-    if (left.dataType != right.dataType) {
+    if (!left.dataType.isEquivalent(right.dataType)) {
       throw new TreeNodeException(this,
         s"Types do not match ${left.dataType} != ${right.dataType}")
     }
     left.dataType match {
-      case i: NativeType => i.ordering.asInstanceOf[Ordering[Any]]
-      case other => sys.error(s"Type $other does not support ordered operations")
+      case i: NativeType if i == right.dataType => i.ordering.asInstanceOf[Ordering[Any]]
+      case other => AnyType.ordering.asInstanceOf[Ordering[Any]]
     }
   }
 
@@ -325,14 +325,14 @@ case class If(predicate: Expression, trueValue: Expression, falseValue: Expressi
   override def children: Seq[Expression] = predicate :: trueValue :: falseValue :: Nil
   override def nullable: Boolean = trueValue.nullable || falseValue.nullable
 
-  override lazy val resolved = childrenResolved && trueValue.dataType == falseValue.dataType
+  override lazy val resolved = childrenResolved //&& trueValue.dataType == falseValue.dataType
   override def dataType: DataType = {
     if (!resolved) {
       throw new UnresolvedException(
         this,
         s"Can not resolve due to differing types ${trueValue.dataType}, ${falseValue.dataType}")
     }
-    trueValue.dataType
+    SQLPlusPlusTypes.findTightestCommonType(trueValue.dataType, falseValue.dataType)
   }
 
   type EvaluatedType = Any
@@ -372,7 +372,13 @@ case class CaseWhen(branches: Seq[Expression]) extends Expression {
     if (!resolved) {
       throw new UnresolvedException(this, "cannot resolve due to differing types in some branches")
     }
-    branches(1).dataType
+    val valueTypes = branches.sliding(2, 2).map {
+      case Seq(_, value) => value.dataType
+      case Seq(elseVal) => elseVal.dataType
+    }.toSeq
+    val commonType = valueTypes.reduce { (v1, v2) =>
+      SQLPlusPlusTypes.findTightestCommonType(v1, v2)}
+    commonType
   }
 
   @transient private[this] lazy val branchesArr = branches.toArray
@@ -394,8 +400,9 @@ case class CaseWhen(branches: Seq[Expression]) extends Expression {
     } else {
       val allCondBooleans = predicates.forall(_.dataType == BooleanType)
       // both then and else val should be considered.
-      val dataTypesEqual = (values ++ elseValue).map(_.dataType).distinct.size <= 1
-      allCondBooleans && dataTypesEqual
+      // deleted because the branch can be heterogeneous
+      //val dataTypesEqual = (values ++ elseValue).map(_.dataType).distinct.size <= 1
+      allCondBooleans //&& dataTypesEqual
     }
   }
 

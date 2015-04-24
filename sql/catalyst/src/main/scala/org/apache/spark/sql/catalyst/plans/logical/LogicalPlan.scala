@@ -20,11 +20,12 @@ package org.apache.spark.sql.catalyst.plans.logical
 import org.apache.spark.Logging
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.analysis.{EliminateSubQueries, UnresolvedGetField, Resolver}
+import org.apache.spark.sql.catalyst.errors.TreeNodeException
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.trees.TreeNode
 import org.apache.spark.sql.catalyst.trees
-import org.apache.spark.sql.types.{ArrayType, StructType, StructField}
+import org.apache.spark.sql.types._
 
 
 abstract class LogicalPlan extends QueryPlan[LogicalPlan] with Logging {
@@ -104,6 +105,57 @@ abstract class LogicalPlan extends QueryPlan[LogicalPlan] with Logging {
       case other => other
     }.toSeq
   }
+  /** Performs attribute resolution given a name and a sequence of possible attributes, when the data contained
+    * of AnyType */
+  def resolveNavigation(name: String,
+                        resolver: Resolver): Option[NamedExpression] = {
+
+    val parts = name.split("\\.")
+
+    val candidates = {
+      if (parts.size > 1){
+        lazy val remainingParts = parts.tail
+        lazy val path =  remainingParts.mkString(".")
+        children.flatMap { child =>
+          //if the qualifiers matched the head of the path, the option is any type and matched the entire path
+          //it is already solved
+          val resolved =  child.output.exists { option => (option.dataType == AnyType) &&
+            option.qualifiers.exists(resolver(_, parts.head)) && resolver(option.name, path)}
+          if (resolved){
+            Seq.empty
+          } else {
+            child.output.flatMap { option =>
+              // If option is AnyType and  the first part of the desired name matches a qualifier
+              // and  we check if the relation exists
+              if ((resolver("*", option.name)
+                && (option.dataType == AnyType)
+                && option.qualifiers.exists(resolver(_, parts.head)))) {
+
+                pathExpression(option, path)(qualifiers = option.qualifiers) :: Nil
+              } else {
+                Seq.empty
+              }
+            }
+          }
+        }
+      } else {
+        Seq.empty
+      }
+    }
+
+    candidates.distinct match {
+      // One match, no nested fields, use it.
+      case Seq(attributes) => Some(attributes)
+
+      // No matches.
+      case Seq() => None
+
+      // More than one match.
+      case ambiguousReferences =>
+        throw new TreeNodeException(
+          this, s"Ambiguous navigation to $name: ${ambiguousReferences.mkString(",")}")
+    }
+  }
 
   /**
    * Optionally resolves the given string to a [[NamedExpression]] using the input from all child
@@ -158,8 +210,10 @@ abstract class LogicalPlan extends QueryPlan[LogicalPlan] with Logging {
       nameParts: Array[String],
       resolver: Resolver,
       attribute: Attribute): Option[(Attribute, List[String])] = {
-    if (resolver(attribute.name, nameParts.head)) {
+    if ((attribute.dataType != AnyType) && resolver(attribute.name, nameParts.head)) {
       Option((attribute.withName(nameParts.head), nameParts.tail.toList))
+    } else if ((attribute.dataType == AnyType) && resolver(attribute.name, nameParts.mkString("."))){
+      Option((attribute.withName(attribute.name),Nil))
     } else {
       None
     }

@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.spark.sql.TupleValue
+
 import scala.collection.Map
 
 import org.apache.spark.sql.types._
@@ -35,10 +37,13 @@ case class GetItem(child: Expression, ordinal: Expression) extends Expression {
   override def dataType: DataType = child.dataType match {
     case ArrayType(dt, _) => dt
     case MapType(_, vt, _) => vt
+    case AnyType => AnyType
   }
   override lazy val resolved =
     childrenResolved &&
-    (child.dataType.isInstanceOf[ArrayType] || child.dataType.isInstanceOf[MapType])
+    (child.dataType.isInstanceOf[ArrayType]
+      || child.dataType.isInstanceOf[MapType]
+      || child.dataType.isInstanceOf[AnyType])
 
   override def toString: String = s"$child[$ordinal]"
 
@@ -51,19 +56,24 @@ case class GetItem(child: Expression, ordinal: Expression) extends Expression {
       if (key == null) {
         null
       } else {
-        if (child.dataType.isInstanceOf[ArrayType]) {
-          // TODO: consider using Array[_] for ArrayType child to avoid
-          // boxing of primitives
-          val baseValue = value.asInstanceOf[Seq[_]]
-          val o = key.asInstanceOf[Int]
-          if (o >= baseValue.size || o < 0) {
+        val (_,kType) =SQLPlusPlusTypes.coerceAny(key,ordinal.dataType)
+        (value,kType) match {
+          case (baseValue :Seq[_],_:NumericType) =>
+            // TODO: consider using Array[_] for ArrayType child to avoid
+            // boxing of primitives
+            val o = key.asInstanceOf[Int]
+            if (o >= baseValue.size || o < 0) {
+              null
+            } else {
+              baseValue(o)
+            }
+          case (baseValue :Seq[_],_) =>
             null
-          } else {
-            baseValue(o)
-          }
-        } else {
-          val baseValue = value.asInstanceOf[Map[Any, _]]
-          baseValue.get(key).orNull
+          case (baseValue: Map[Any,_],_) =>
+            baseValue.get(key).orNull
+          case (baseValue: TupleValue,StringType) =>
+            baseValue.get(key.asInstanceOf[String])
+          case _ => null
         }
       }
     }

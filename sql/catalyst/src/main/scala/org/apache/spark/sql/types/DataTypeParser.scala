@@ -53,6 +53,9 @@ private[sql] trait DataTypeParser extends StandardTokenParsers {
     "(?i)timestamp".r ^^^ TimestampType |
     varchar
 
+  protected lazy val anyType: Parser[DataType] =
+    "(?i)any".r ^^^ AnyType
+
   protected lazy val fixedDecimalType: Parser[DataType] =
     ("(?i)decimal".r ~> "(" ~> numericLit) ~ ("," ~> numericLit <~ ")") ^^ {
       case precision ~ scale =>
@@ -87,7 +90,8 @@ private[sql] trait DataTypeParser extends StandardTokenParsers {
     arrayType |
     mapType |
     structType |
-    primitiveType
+    primitiveType |
+    anyType
 
   def toDataType(dataTypeString: String): DataType = synchronized {
     phrase(dataType)(new lexical.Scanner(dataTypeString)) match {

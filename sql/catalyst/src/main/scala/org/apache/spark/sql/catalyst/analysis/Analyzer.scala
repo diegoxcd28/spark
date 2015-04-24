@@ -57,6 +57,7 @@ class Analyzer(
     Batch("Resolution", fixedPoint,
       ResolveRelations ::
       ResolveReferences ::
+      ResolveNavigate ::
       ResolveGroupingAnalytics ::
       ResolveSortReferences ::
       ImplicitGenerate ::
@@ -183,7 +184,8 @@ class Analyzer(
         i.copy(
           table = EliminateSubQueries(getTable(u)))
       case u: UnresolvedRelation =>
-        getTable(u)
+        val table = getTable(u)
+        Navigate(Seq(),table)
     }
   }
 
@@ -333,10 +335,42 @@ class Analyzer(
         case ArrayType(StructType(fields), containsNull) =>
           val ordinal = findField(fields)
           ArrayGetField(expr, fields(ordinal), ordinal, containsNull)
+        case AnyType =>
+          pathExpression(expr, fieldName)()
         case otherType =>
           throw new AnalysisException(s"GetField is not valid on fields of type $otherType")
       }
     }
+  }
+  /**
+   * Creates the Navigate expressions given the [[UnresolvedAttribute]]s
+
+   */
+  object ResolveNavigate extends Rule[LogicalPlan] {
+    def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
+      case p: LogicalPlan if !p.childrenResolved => p
+
+      case l: LogicalPlan =>
+        logTrace(s"Attempting to resolve ${l.simpleString}")
+
+        introduceNavigate(l,l.expressions)
+    }
+    protected def introduceNavigate(plan: LogicalPlan, expressions: Seq[Expression]): LogicalPlan =
+      expressions.foldLeft(plan) {
+        case (plan,u@UnresolvedAttribute(name)) =>
+          plan.resolveNavigation(name, resolver) match {
+            case Some(att) =>
+              plan transform {
+                case p@Navigate(ele,_) if p.output(0).qualifiers == att.qualifiers =>
+                  p.copy(elements = ele ++ Seq(att))
+              }
+            case None => plan
+          }
+        case (plan,e: Expression) =>
+          introduceNavigate(plan, e.children)
+        case (plan,_) =>
+          plan
+      }
   }
 
   /**
@@ -496,5 +530,6 @@ class Analyzer(
 object EliminateSubQueries extends Rule[LogicalPlan] {
   def apply(plan: LogicalPlan): LogicalPlan = plan transform {
     case Subquery(_, child) => child
+    case Navigate(Seq(),child) => child
   }
 }

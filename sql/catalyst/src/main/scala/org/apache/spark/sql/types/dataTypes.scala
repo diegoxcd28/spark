@@ -19,6 +19,8 @@ package org.apache.spark.sql.types
 
 import java.sql.Timestamp
 
+import org.apache.spark.sql.types.SQLPlusPlusTypes.{AnyIntegral, AnyFractional, AnyNumeric, AnyComparator}
+
 import scala.collection.mutable.ArrayBuffer
 import scala.math.Numeric.{FloatAsIfIntegral, DoubleAsIfIntegral}
 import scala.reflect.ClassTag
@@ -267,6 +269,10 @@ abstract class DataType {
 
   def simpleString: String = typeName
 
+  def superTypeOf(that: DataType) = that.isInstanceOf[this.type]
+
+  def isEquivalent(that: DataType) = this.superTypeOf(that) || that.superTypeOf(this)
+
   /** Check if `this` and `other` are the same data type when ignoring nullability
    *  (`StructField.nullable`, `ArrayType.containsNull`, and `MapType.valueContainsNull`).
    */
@@ -363,6 +369,42 @@ class StringType private() extends NativeType with PrimitiveType {
 
 case object StringType extends StringType
 
+
+
+/**
+ * :: DeveloperApi ::
+ *
+ * The data type representing `Any` values. Please use the singleton [[DataTypes.AnyType]].
+ *
+ * @group dataType
+ */
+@DeveloperApi
+class AnyType private()  extends DataType {
+  private[sql] type JvmType = Any
+  @transient private[sql] lazy val tag = ScalaReflectionLock.synchronized { typeTag[JvmType] }
+  private[sql] val ordering = AnyComparator
+  private[sql] val numeric = AnyFractional
+  private[sql] val integral = AnyIntegral
+
+  override def equals(that: Any) = {
+    that match {
+      case t :AnyType => true
+      case _ => false
+    }
+  }
+  override def superTypeOf(that: DataType) = true
+
+  /**
+   * The default size of a value of the AnyType is 4096 bytes.
+   */
+  override def defaultSize: Int = 4096
+
+  private[spark] override def asNullable: AnyType = this
+
+  def toAttributes: Seq[Attribute] = Seq(AttributeReference("*", AnyType)())
+}
+
+case object AnyType extends AnyType
 
 /**
  * :: DeveloperApi ::
@@ -947,6 +989,25 @@ object StructType {
     }
 }
 
+case object OpenStructType {
+  protected[sql] def fromAttributes(attributes: Seq[Attribute]): StructType =
+    StructType(attributes.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
+
+  def apply(fields: Seq[StructField]): StructType = {
+    val nFields = fields :+ StructField("*",AnyType)
+    StructType(nFields.toArray)
+  }
+  def apply(): StructType = {
+    val nFields = StructField("*",AnyType)
+    StructType(Array(nFields))
+  }
+
+  def apply(fields: java.util.List[StructField]): StructType = {
+    fields.add(StructField("*",AnyType))
+    StructType(fields.toArray.asInstanceOf[Array[StructField]])
+  }
+}
+
 
 /**
  * :: DeveloperApi ::
@@ -1022,6 +1083,19 @@ case class StructType(fields: Array[StructField]) extends DataType with Seq[Stru
 
   private lazy val fieldNamesSet: Set[String] = fieldNames.toSet
   private lazy val nameToField: Map[String, StructField] = fields.map(f => f.name -> f).toMap
+  private lazy val nameToFieldIndex: Map[String, (StructField,Int)] =
+    fields.zipWithIndex.map{case (f,i) => f.name -> (f, i)}.toMap
+
+  /**
+   * Extracts a [[StructField]] and its index of the given name. If the [[StructType]] object does not
+   * have a name matching the given name, `null` will be returned.
+   */
+  def getFieldIndex(name: String): Option[(StructField,Int)] = {
+    nameToFieldIndex.get(name)
+  }
+  def getOpenIndex: Option[Int] = nameToFieldIndex.get("*").map(f => f._2)
+
+  def isOpen :Boolean = fieldNamesSet.contains("*")
 
   /**
    * Extracts a [[StructField]] of the given name. If the [[StructType]] object does not

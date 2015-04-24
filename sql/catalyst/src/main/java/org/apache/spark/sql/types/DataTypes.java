@@ -30,6 +30,11 @@ public class DataTypes {
   public static final DataType StringType = StringType$.MODULE$;
 
   /**
+   * Gets the AnyType object.
+   */
+  public static final DataType AnyType = AnyType$.MODULE$;
+
+  /**
    * Gets the BinaryType object.
    */
   public static final DataType BinaryType = BinaryType$.MODULE$;

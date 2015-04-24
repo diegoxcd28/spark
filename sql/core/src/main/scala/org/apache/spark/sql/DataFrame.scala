@@ -45,6 +45,8 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.sources.{ResolvedDataSource, CreateTableUsingAsSelect}
 import org.apache.spark.util.Utils
 
+import java.nio.file.{Paths, Files}
+import java.nio.charset.StandardCharsets
 
 private[sql] object DataFrame {
   def apply(sqlContext: SQLContext, logicalPlan: LogicalPlan): DataFrame = {
@@ -1244,6 +1246,18 @@ class DataFrame private[sql](
         }
       }
     }
+  }
+
+
+  /**
+   * Creates a single File of the DataFrame.
+   * Warning, it will be slower than creating a hadoop file with
+   * df.[[save]]("json", [[SaveMode.ErrorIfExists]], Map("path" -> FilesPath)
+   * @param path
+   */
+  def saveAsSingleJSONFile(path: String): Unit = {
+    val data = toJSON
+    Files.write(Paths.get(path), data.collect.mkString("\n").getBytes(StandardCharsets.UTF_8))
   }
 
   ////////////////////////////////////////////////////////////////////////////

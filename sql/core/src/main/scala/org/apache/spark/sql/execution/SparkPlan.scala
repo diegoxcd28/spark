@@ -151,6 +151,17 @@ abstract class SparkPlan extends QueryPlan[SparkPlan] with Logging with Serializ
     }
   }
 
+  protected def newNavigation(
+                               expressions: Seq[Expression],
+                               inputSchema: Seq[Attribute]): () => MutableProjection = {
+    log.debug(
+      s"Creating Navigation: $expressions, inputSchema: $inputSchema, codegen:$codegenEnabled")
+    if(codegenEnabled) {
+      null
+    } else {
+      () => new InterpretedNavigation(expressions, inputSchema)
+    }
+  }
 
   protected def newPredicate(
       expression: Expression, inputSchema: Seq[Attribute]): (Row) => Boolean = {

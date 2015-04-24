@@ -31,21 +31,21 @@ import org.apache.spark.sql.{Row, Strategy, execution, sources}
  */
 private[sql] object DataSourceStrategy extends Strategy {
   def apply(plan: LogicalPlan): Seq[execution.SparkPlan] = plan match {
-    case PhysicalOperation(projectList, filters, l @ LogicalRelation(t: CatalystScan)) =>
+    case PhysicalOperation(projectList, filters,_, l @ LogicalRelation(t: CatalystScan)) =>
       pruneFilterProjectRaw(
         l,
         projectList,
         filters,
         (a, f) => t.buildScan(a, f)) :: Nil
 
-    case PhysicalOperation(projectList, filters, l @ LogicalRelation(t: PrunedFilteredScan)) =>
+    case PhysicalOperation(projectList, filters,_, l @ LogicalRelation(t: PrunedFilteredScan)) =>
       pruneFilterProject(
         l,
         projectList,
         filters,
         (a, f) => t.buildScan(a, f)) :: Nil
 
-    case PhysicalOperation(projectList, filters, l @ LogicalRelation(t: PrunedScan)) =>
+    case PhysicalOperation(projectList, filters,_, l @ LogicalRelation(t: PrunedScan)) =>
       pruneFilterProject(
         l,
         projectList,
