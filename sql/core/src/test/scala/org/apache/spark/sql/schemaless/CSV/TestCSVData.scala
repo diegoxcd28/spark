@@ -20,8 +20,8 @@ package org.apache.spark.sql.schemaless.CSV
 import java.sql.Date
 import java.text.SimpleDateFormat
 
-import org.apache.spark.sql.Row
-import org.apache.spark.sql.catalyst.expressions.GenericTupleValue
+import org.apache.spark.sql.{OpenTuple, Row}
+import org.apache.spark.sql.catalyst.expressions.GenericOpenTuple
 import org.apache.spark.sql.test.TestSQLContext
 import org.apache.spark.sql.types._
 
@@ -88,7 +88,7 @@ object TestCSVData {
 
   val openReviewsRdd = TestSQLContext.sparkContext.textFile("reviews.csv").map(_.split(",")).map { p =>
     if (p.size != 8) {
-      Row("", 0.0,"",Array(),null,null,new GenericTupleValue() )
+      Row("", 0.0,"",Array(),null,null,OpenTuple() )
     } else {
       Row(p(0), p(1).toDouble, p(2), Array(p(3).split(";|\\[|\\]")), p(4),
         if (p(5)=="") {
@@ -101,7 +101,7 @@ object TestCSVData {
             case e:Exception => null
           }
       },
-        new GenericTupleValue( Map( "userId" -> p(6), "uTime" -> p(7).toLong).toMap))
+        OpenTuple( Map( "userId" -> p(6), "uTime" -> p(7).toLong).toMap))
     }
   }
 
@@ -119,9 +119,9 @@ object TestCSVData {
 
   val noSchemaReviewsRdd = TestSQLContext.sparkContext.textFile("reviews.csv").map(_.split(",")).map { p =>
     if (p.size != 8) {
-      Row(new GenericTupleValue())
+      Row(OpenTuple())
     } else {
-      Row(new GenericTupleValue( Map("userName"-> p(0),"rating" -> p(1).toDouble,
+      Row(OpenTuple( Map("userName"-> p(0),"rating" -> p(1).toDouble,
           "review" -> p(2),"categories" -> Array(p(3).split(";|\\[|\\]")), "placeId" -> p(4),
           "textTime" -> {
             if (p(5)=="") {
@@ -167,10 +167,10 @@ object TestCSVData {
 
   val openReviewsRdd2 = TestSQLContext.sparkContext.textFile("reviews.csv").map(_.split(",")).map { p =>
     if (p.size != 8) {
-      Row("", 0.0,"",Array(),null,null,new GenericTupleValue() )
+      Row("", 0.0,"",Array(),null,null,OpenTuple() )
     } else {
       Row(p(0), p(1).toDouble, p(2), Array(p(3).split(";|\\[|\\]")), p(4),
-        new GenericTupleValue( Map("textTime" ->{
+        OpenTuple( Map("textTime" ->{
           if (p(5)=="") {
             null
           } else{

@@ -19,9 +19,8 @@ package org.apache.spark.sql.schemaless
 
 import java.util.TimeZone
 
-import org.apache.spark.sql.catalyst.expressions.GenericTupleValue
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{QueryTest, Row, TestData}
+import org.apache.spark.sql.{OpenTuple, QueryTest, Row, TestData}
 import org.scalatest.BeforeAndAfterAll
 
 /* Implicits */
@@ -46,12 +45,12 @@ class SchemalessSuite extends QueryTest with BeforeAndAfterAll {
   test("schemaless") {
     checkAnswer(
       sql("SELECT * FROM testData77"),
-      Seq(Row(new GenericTupleValue(Map("a" -> 1,"b"->1))),
-        Row(new GenericTupleValue(Map("a" -> 1,"b"->2))),
-        Row(new GenericTupleValue(Map("a" -> 2,"b"->5))),
-        Row(new GenericTupleValue(Map("key" -> 2,"value"->"3.2"))),
-        Row(new GenericTupleValue(Map("key" -> 3,"value"->"1"))),
-        Row(new GenericTupleValue(Map("key" -> 3,"value"->"2")))
+      Seq(Row(OpenTuple(Map("a" -> 1,"b"->1))),
+        Row(OpenTuple(Map("a" -> 1,"b"->2))),
+        Row(OpenTuple(Map("a" -> 2,"b"->5))),
+        Row(OpenTuple(Map("key" -> 2,"value"->"3.2"))),
+        Row(OpenTuple(Map("key" -> 3,"value"->"1"))),
+        Row(OpenTuple(Map("key" -> 3,"value"->"2")))
       )
     )
   }
@@ -68,14 +67,14 @@ class SchemalessSuite extends QueryTest with BeforeAndAfterAll {
     checkAnswer(
       sql("SELECT  t.b, t.b.bb FROM myrows as t "),
       Seq(Row(List(1,2),null),
-        Row(new GenericTupleValue(Map("bb" -> 3)),3))
+        Row(OpenTuple(Map("bb" -> 3)),3))
     )
   }
   test("schemaless-array-navigation") {
     checkAnswer(
       sql("SELECT  t.b, t.b[1], t.b['bb'] FROM myrows as t "),
       Seq(Row(List(1,2),2,null),
-        Row(new GenericTupleValue(Map("bb" -> 3)),null,3))
+        Row(OpenTuple(Map("bb" -> 3)),null,3))
     )
   }
 
@@ -434,6 +433,50 @@ class SchemalessSuite extends QueryTest with BeforeAndAfterAll {
 
     )
 
+  }
+
+  test("schemaless-distinct") {
+    checkAnswer(
+      sql("SELECT distinct  t.a, t.b " +
+        "FROM testHeterogeneousData as t "  ),
+      Seq(Row(1,"a"),
+        Row(1,2),
+        Row(1,1),
+        Row(2,"b"),
+        Row(2,5),
+        Row(2,3.0.toFloat),
+        Row(3,3.41.toFloat),
+        Row(3,3.2.toFloat),
+        Row(4,"x")
+      )
+    )
+  }
+  test("schemaless-array-indexing") {
+    checkAnswer(
+      sql("SELECT t.array[1], t.array[2] " +
+        "FROM openTable as t " +
+        "WHERE t.any='a'"  ),
+      Seq(Row(3,null)
+      )
+    )
+  }
+  test("schemaless-array-indexing-2") {
+    checkAnswer(
+      sql("SELECT t.array[t.number] " +
+        "FROM openTable as t " +
+        "WHERE t.float = 2.3" ),
+      Seq(Row(4)
+      )
+    )
+  }
+  test("schemaless-array-substring") {
+    checkAnswer(
+      sql("SELECT substring(t.any,2,2) " +
+        "FROM openTable as t "  +
+        "WHERE t.float = 2.0"  ),
+      Seq(Row(""),Row("x")
+      )
+    )
   }
 
 

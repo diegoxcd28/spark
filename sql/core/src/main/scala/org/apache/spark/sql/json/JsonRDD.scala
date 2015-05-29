@@ -19,7 +19,7 @@ package org.apache.spark.sql.json
 
 import java.sql.Timestamp
 
-import org.apache.spark.sql.TupleValue
+import org.apache.spark.sql.{OpenTuple, OpenTuple$}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{mutable, Map}
@@ -446,8 +446,8 @@ private[sql] object JsonRDD extends Logging {
         case v:ArrayBuffer[_] =>
           value.asInstanceOf[Seq[Any]].map(enforceCorrectType(_, AnyType))
         case _ if value == null || value == "" => null // guard the non string type
-        case map:Map[String,_] =>
-          new GenericTupleValue(map.mapValues(enforceCorrectType(_, AnyType)).map(identity).toMap)
+        case map:Map[String,Any] =>
+          new GenericOpenTuple(map.mapValues(enforceCorrectType(_, AnyType)).map(identity).toMap)
         case _ => value
       }
     }
@@ -469,7 +469,7 @@ private[sql] object JsonRDD extends Logging {
               openTuple += pair
           }
       }
-      row.update(openIdx.get,new GenericTupleValue(openTuple.toMap))
+      row.update(openIdx.get,new GenericOpenTuple(openTuple.toMap))
     } else {
       schema.fields.zipWithIndex.foreach {
         case (StructField(name, dataType, _, _), i) =>
@@ -525,6 +525,8 @@ private[sql] object JsonRDD extends Logging {
         gen.writeStartObject()
         ty.zip(v.toSeq).foreach {
           case (_, null) =>
+          case (field,v) if field.name=="*" =>
+            valWriter(field.dataType, v)
           case (field, v) =>
             gen.writeFieldName(field.name)
             valWriter(field.dataType, v)
@@ -559,13 +561,11 @@ private[sql] object JsonRDD extends Logging {
           valWriter(AnyType,p._2)
         }
         gen.writeEndObject()
-      case  v: TupleValue =>
-        gen.writeStartObject()
+      case  v: OpenTuple =>
         v.toSeq.foreach { p =>
           gen.writeFieldName(p._1.toString)
           valWriter(AnyType,p._2)
         }
-        gen.writeEndObject()
       case  v: Row =>
         gen.writeStartObject()
         v.toSeq.foreach {

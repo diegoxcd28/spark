@@ -17,8 +17,6 @@
 
 package org.apache.spark.sql.schemaless
 
-import java.sql.Date
-
 import org.apache.spark.sql.TestData.TestData2
 import org.apache.spark.sql.test._
 import org.apache.spark.sql.types._
@@ -41,12 +39,6 @@ object TestNoSchemaData {
         List.fill(4)(twoData("test",3)),2).toDF()
   nullableRepeatedData.registerTempTable("nullableRepeatedData")
 
-  //val rdd = TestSQLContext.sparkContext.parallelize(Row(1,Seq("a",2,3),3.4) :: Row(3,Seq(1,2,3),1,2) :: Nil)
-  //val schema = StructType(
-  //      StructField ("a",IntegerType, true) ::
-  //      StructField ("b",ArrayType(IntegerType), true) ::
-  //      StructField ("c",DoubleType, true) :: Nil
-  //)
   val rowRDD = TestSQLContext.sparkContext.parallelize(
     Row(Map("a" -> 1,"b" -> Map("bb" -> 3),"c" -> 3.4)) ::
       Row(Map("a" -> 3,"b" -> Seq(1,2),"c" -> 1, "d" -> 2)) :: Nil)

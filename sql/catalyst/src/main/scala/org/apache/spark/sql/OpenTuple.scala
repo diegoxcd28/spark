@@ -1,6 +1,6 @@
 package org.apache.spark.sql
 
-import org.apache.spark.sql.catalyst.expressions.GenericTupleValue
+import org.apache.spark.sql.catalyst.expressions.GenericOpenTuple
 
 import scala.util.hashing.MurmurHash3
 /**
@@ -24,9 +24,9 @@ import scala.util.hashing.MurmurHash3
  */
 
 
-object TupleValue {
+object OpenTuple {
   /**
-   * This method can be used to extract fields from a [[TupleValue]] object in a pattern match. Example:
+   * This method can be used to extract fields from a [[OpenTuple]] object in a pattern match. Example:
    * {{{
    * import org.apache.spark.sql._
    *
@@ -41,18 +41,18 @@ object TupleValue {
   /**
    * This method can be used to construct a [[Row]] with the given values.
    */
-  def apply(): TupleValue = new GenericTupleValue()
+  def apply(): OpenTuple = new GenericOpenTuple()
 
   /**
    * This method can be used to construct a [[Row]] with the given values.
    */
-  def apply(m: Map[String,Any]): TupleValue = new GenericTupleValue(m)
+  def apply(m: Map[String,Any]): OpenTuple = new GenericOpenTuple(m)
 
 
   /**
    * Merge multiple rows into a single row, one after another.
    */
-  def merge(tuples: TupleValue*): TupleValue = {
+  def merge(tuples: OpenTuple*): OpenTuple = {
     throw new UnsupportedOperationException
   }
 }
@@ -69,7 +69,7 @@ object TupleValue {
  *
  * @group row
  */
-trait TupleValue extends Serializable {
+trait OpenTuple extends Serializable {
   /** Number of elements in the Tuple. */
   def size: Int = length
 
@@ -142,9 +142,9 @@ trait TupleValue extends Serializable {
   override def toString(): String = s"{${this.mkString(",")}}"
 
   /**
-   * Make a copy of the current [[TupleValue]] object.
+   * Make a copy of the current [[OpenTuple]] object.
    */
-  def copy(): TupleValue
+  def copy(): OpenTuple
 
   /** Returns true if there are any NULL values in this row. */
   def anyNull: Boolean = {
@@ -159,7 +159,7 @@ trait TupleValue extends Serializable {
 
   override def equals(that: Any): Boolean = that match {
     case null => false
-    case that: TupleValue =>
+    case that: OpenTuple =>
       if (this.length != that.length) {
         return false
       }

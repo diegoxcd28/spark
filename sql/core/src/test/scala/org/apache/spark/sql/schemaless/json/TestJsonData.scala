@@ -102,7 +102,7 @@ object TestJsonData {
     StructField("texttime",StringType)::
     StructField("gPlusPlaceId",StringType)::
     StructField("gPlusUserId",StringType)::
-    StructField("utime",AnyType)::Nil)
+    StructField("utime",LongType)::Nil)
 
   val reviews =  jsonFile("reviews_1.json",schemaReviews)
 

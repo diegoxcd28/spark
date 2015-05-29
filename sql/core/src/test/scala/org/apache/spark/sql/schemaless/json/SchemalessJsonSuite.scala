@@ -140,7 +140,7 @@ class SchemalessJsonSuite extends QueryTest with BeforeAndAfterAll {
         21474836470L,
         null,
         "this is a simple string.",
-        TupleValue(Map("boolean" ->  true))
+        OpenTuple(Map("boolean" ->  true))
       )
     )
   }
@@ -160,11 +160,11 @@ class SchemalessJsonSuite extends QueryTest with BeforeAndAfterAll {
 
     checkAnswer(
       sql("select * from jsonTable "),
-      Row(Seq(), 11, Seq(1,2,3),  TupleValue(),  Seq()) ::
-        Row(null, TupleValue(Map("field" -> false)), null, null, TupleValue()) ::
-        Row(Seq(4, 5, 6), null, "str", TupleValue(Map("field" -> null)), Seq(7,8,9)) ::
-        Row(Seq(7), TupleValue(),Seq("str1","str2",33), TupleValue(Map("field" -> "str")),
-          TupleValue(Map("field" -> true))) ::
+      Row(Seq(), 11, Seq(1,2,3),  OpenTuple(),  Seq()) ::
+        Row(null, OpenTuple(Map("field" -> false)), null, null, OpenTuple()) ::
+        Row(Seq(4, 5, 6), null, "str", OpenTuple(Map("field" -> null)), Seq(7,8,9)) ::
+        Row(Seq(7), OpenTuple(),Seq("str1","str2",33), OpenTuple(Map("field" -> "str")),
+          OpenTuple(Map("field" -> true))) ::
       Nil
     )
   }
@@ -175,11 +175,11 @@ class SchemalessJsonSuite extends QueryTest with BeforeAndAfterAll {
     jsonDF.registerTempTable("jsonTable")
     checkAnswer(
       sql("select t.array, t.num_struct, t.str_array, t.struct, t.struct_array from jsonTable t "),
-      Row(Seq(), 11, Seq(1,2,3),  TupleValue(),  Seq()) ::
-        Row(null, TupleValue(Map("field" -> false)), null, null, TupleValue()) ::
-        Row(Seq(4, 5, 6), null, "str", TupleValue(Map("field" -> null)), Seq(7,8,9)) ::
-        Row(Seq(7), TupleValue(),Seq("str1","str2",33), TupleValue(Map("field" -> "str")),
-          TupleValue(Map("field" -> true))) ::
+      Row(Seq(), 11, Seq(1,2,3),  OpenTuple(),  Seq()) ::
+        Row(null, OpenTuple(Map("field" -> false)), null, null, OpenTuple()) ::
+        Row(Seq(4, 5, 6), null, "str", OpenTuple(Map("field" -> null)), Seq(7,8,9)) ::
+        Row(Seq(7), OpenTuple(),Seq("str1","str2",33), OpenTuple(Map("field" -> "str")),
+          OpenTuple(Map("field" -> true))) ::
         Nil
     )
   }

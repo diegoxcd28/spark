@@ -19,7 +19,7 @@ package org.apache.spark.sql.catalyst
 
 import java.sql.Timestamp
 
-import org.apache.spark.sql.TupleValue
+import org.apache.spark.sql.{OpenTuple, OpenTuple$}
 import org.apache.spark.util.Utils
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.logical.LocalRelation
@@ -85,7 +85,7 @@ trait ScalaReflection {
         }.toArray)
     case (s: Seq[_], t: AnyType) => s.map(convertToCatalyst(_, t))
     case (p: Product, _: AnyType) =>
-      new GenericTupleValue(
+      new GenericOpenTuple(
         p.getClass.getDeclaredFields.map(field => field.getName),
         p.productIterator.map { elem =>
           convertToCatalyst(elem, AnyType)
@@ -94,12 +94,12 @@ trait ScalaReflection {
       val mp:Map[String,Any] = m.map { case (k, v) =>
         k -> convertToCatalyst(v, t)
     }
-      new GenericTupleValue(mp.toMap)
-    case (m: TupleValue, t: AnyType) =>
+      new GenericOpenTuple(mp.toMap)
+    case (m: OpenTuple, t: AnyType) =>
       val mp = m.toSeq.map { case (k, v) =>
         k -> convertToCatalyst(v, t)
     }
-      new GenericTupleValue(mp.toMap)
+      new GenericOpenTuple(mp.toMap)
     case (other, _) => other
   }
 

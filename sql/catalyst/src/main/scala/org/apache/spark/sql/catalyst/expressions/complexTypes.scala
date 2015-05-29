@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.TupleValue
+import org.apache.spark.sql.{OpenTuple, OpenTuple$}
 
 import scala.collection.Map
 
@@ -71,7 +71,7 @@ case class GetItem(child: Expression, ordinal: Expression) extends Expression {
             null
           case (baseValue: Map[Any,_],_) =>
             baseValue.get(key).orNull
-          case (baseValue: TupleValue,StringType) =>
+          case (baseValue: OpenTuple,StringType) =>
             baseValue.get(key.asInstanceOf[String])
           case _ => null
         }

@@ -1,9 +1,6 @@
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.TupleValue
-
-
-
+import org.apache.spark.sql.OpenTuple
 
 
 /**
@@ -14,7 +11,7 @@ import org.apache.spark.sql.TupleValue
  * the map is not copied, and thus could technically be mutated after creation, this is not
  * allowed.
  */
-class GenericTupleValue(protected[sql] val attributes : Map[String, Any]) extends TupleValue {
+class GenericOpenTuple(protected[sql] val attributes : Map[String, Any]) extends OpenTuple {
 
 
   def this() = this(Map.empty[String,Any])

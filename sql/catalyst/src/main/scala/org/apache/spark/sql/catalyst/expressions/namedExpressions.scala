@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.TupleValue
+import org.apache.spark.sql.{OpenTuple, OpenTuple$}
 import org.apache.spark.sql.catalyst.trees
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
@@ -164,7 +164,7 @@ case class pathExpression(child: Expression, name: String)
 
   private def nest(childVal : Any, path: Seq[String] ) = {
     path.foldLeft(childVal) {
-      case (t: TupleValue,p) => t.get(p)
+      case (t: OpenTuple,p) => t.get(p)
       case (_,_) => null
     }
   }

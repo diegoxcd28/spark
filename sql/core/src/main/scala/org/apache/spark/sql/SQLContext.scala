@@ -411,7 +411,7 @@ class SQLContext(@transient val sparkContext: SparkContext)
    * converted to Catalyst rows. With the schema type as any
    */
   private[sql]
-  def createDataFrame(rowRDD: RDD[Row], schema: AnyType, needsConversion: Boolean) = {
+  def createDataFrame(rowRDD: RDD[Row], schema: AnyType, needsConversion: Boolean): DataFrame = {
     createDataFrame(rowRDD,OpenStructType(),needsConversion)
   }
 
@@ -591,7 +591,7 @@ class SQLContext(@transient val sparkContext: SparkContext)
    */
   @Experimental
   def jsonFile(path: String, schema: AnyType): DataFrame =
-    load("json", OpenStructType(Seq()), Map("path" -> path))
+    load("json", OpenStructType(), Map("path" -> path))
 
   /**
    * :: Experimental ::
@@ -646,9 +646,7 @@ class SQLContext(@transient val sparkContext: SparkContext)
    */
   @Experimental
   def jsonRDD(json: RDD[String], schema: AnyType): DataFrame = {
-    val columnNameOfCorruptJsonRecord = conf.columnNameOfCorruptRecord
-    val rowRDD = JsonRDD.jsonStringToRow(json, schema, columnNameOfCorruptJsonRecord)
-    createDataFrame(rowRDD, schema, needsConversion = false)
+    jsonRDD(json, OpenStructType())
   }
 
   /**
